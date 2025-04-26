@@ -9,7 +9,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import WaterfallComponent from './components/TWaterfall.vue'
+import WaterfallComponent from './components/TWaterFall.vue'
 
 // 初始数据
 const initData = [
