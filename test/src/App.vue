@@ -77,7 +77,7 @@ const fetchContent = async () => {
 }
 const fetchLoadMoreContent = async () => { // 该方法为获取更多，api和fetchRefreshContent相同，只是获取的值拼接在contentList后面
   console.log('load-more')
-  fetch(`http://localhost:3000/data/${userid.value}`)
+  fetch(`https://authorapp.onrender.com/data/${userid.value}`)
     .then(response => response.json())
     .then(data => {
       console.log('data:', data)
@@ -94,7 +94,7 @@ const fetchLoadMoreContent = async () => { // 该方法为获取更多，api和f
 const fetchRefreshContent = async () => { //服务器api链接为http://localhost:3000/data/:userid,该函数功能为请求api数据，get请求
   console.log('refresh')
   console.log('userid:', userid.value)
-  fetch(`http://localhost:3000/data/${userid.value}`)
+  fetch(`https://authorapp.onrender.com/data/${userid.value}`)
     .then(response => response.json())
     .then(data => {
       console.log('data:', data)
