@@ -1,13 +1,14 @@
 <template>
   <div 
     class="waterfall-container"
+    ref="containerRef"
     @touchstart="handleTouchStart"
     @touchmove="handleTouchMove"
     @touchend="handleTouchEnd"
     :style="{ transform: `translateY(${pullOffset}px)` }"
   >
     <div class="refresh-indicator" v-show="isRefreshing || pullProgress > 0">
-      <div class="loader" :class="{ active: isRefreshing }">
+      <div class="loader" :class="{ active: !!isRefreshing }">
         {{ refreshStatusText }}
       </div>
     </div>
@@ -20,28 +21,33 @@
       img-selector="cover"
     >
       <template #item="{ item }">
-        <div class="card-item">
+        <div class="card-item" 
+        @click="cardClickHandler(item)" >
           <!-- 媒体内容 -->
-          <div class="media-wrapper" :style="{ paddingTop: `${100 / (item.ratio || 1.7778)}%` }">
-            <video
+          <div class="media-wrapper" :style="{ paddingTop: `${(item.ratio || 0.5625) * 100}%` }">
+            <!-- <video
               v-if="item.videoUrl"
               :src="item.videoUrl"
               :poster="item.cover"
               controls
               class="media-content"
-            ></video>
+            ></video> -->
             <img
-              v-else
               v-lazy="item.cover"
               class="media-content"
               :src="item.url"
               :alt="item.title"
             >
-            
+            <div v-if="item.videoUrl" class="video-play-hint">
+              <svg class="play-icon" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </div>
           </div>
 
           <!-- 信息覆盖层 -->
           <div class="content-overlay">
+            <h3 class="title">{{ item.title }}</h3>
             <div class="top-bar">
               <span class="game-tag">{{ item.tag }}</span>
             </div>
@@ -50,8 +56,7 @@
             <div class="author-info">
               <img :src="item.avatar" class="author-avatar" />
               <div class="meta">
-                <h3 class="title">{{ item.title }}</h3>
-                <p class="author">@{{ item.author }}</p>
+                <p class="author">{{ item.author }}</p>
               </div>
             </div>
           </div>
@@ -68,6 +73,20 @@
       </div>
     </div>
   </div>
+  <teleport to="body">
+  <transition name="video-fade">
+    <div v-if="showVideoModal" class="video-modal" @click.self="closeVideo">
+      <div class="video-container">
+        <video 
+          ref="videoPlayer"
+          :src="selectedVideoUrl"
+          controls
+          autoplay
+        ></video>
+      </div>
+    </div>
+  </transition>
+</teleport>
 </template>
 
 <script setup>
@@ -85,7 +104,7 @@ const props = defineProps({
   hasMore: Boolean
 })
 
-const emit = defineEmits(['load-more', 'toggle-like'])
+const emit = defineEmits(['load-more', 'refresh', 'toggle-like'])
 
 // 响应式断点配置
 const responsiveBreakpoints = {
@@ -126,7 +145,16 @@ const toggleLike = item => {
 }
 
 // 下拉刷新相关
+const containerRef = ref(null)
+// 在原有的响应式变量后添加这两个控制变量
+const enablePullDown = ref(false)  // 是否允许下拉刷新
+const enablePullUp = ref(false)    // 是否允许上拉加载
 const MIN_PULL_DISTANCE = 80 // 触发刷新的最小拖动距离
+const PULL_DIRECTION = {       // 拉动方向枚举
+  UP: 'up',
+  DOWN: 'down'
+}
+const DAMPING_FACTOR = 0.6     // 滚动阻尼系数
 const pullStartY = ref(0)
 const pullOffset = ref(0)
 const isPullActive = ref(false)
@@ -145,14 +173,27 @@ const refreshStatusText = computed(() => {
 })
 // 触摸事件处理
 const handleTouchStart = (e) => {
+  /* console.log('touchstart')
   const scrollTop = document.documentElement.scrollTop
   if (scrollTop === 0) { // 只有当在顶部时才开启下拉检测
     pullStartY.value = e.touches[0].clientY
     isPullActive.value = true
-  }
+  } */
+  const container = containerRef.value
+  if (!container) return
+  // 获取当前滚动位置参数
+  const { scrollTop, scrollHeight, clientHeight } = container
+  const currentPosition = scrollTop + clientHeight
+  console.log(scrollTop, currentPosition, scrollHeight)
+  
+  // 设置可操作方向（顶部5px内可下拉，底部5px内可上拉）
+  enablePullDown.value = scrollTop <= 5
+  enablePullUp.value = (scrollHeight - currentPosition) <= 5
+  pullStartY.value = e.touches[0].clientY
+  isPullActive.value = true
 }
 const handleTouchMove = (e) => {
-  if (!isPullActive.value) return
+  /* if (!isPullActive.value) return
   const currentY = e.touches[0].clientY
   const deltaY = currentY - pullStartY.value
   // 向下拖动且未达到最大距离（带阻尼效果）
@@ -165,10 +206,36 @@ const handleTouchMove = (e) => {
     const dampedY = deltaY * 0.6 // 阻尼系数
     pullOffset.value = Math.min(dampedY, MIN_PULL_DISTANCE * 1.5)
     e.preventDefault() // 阻止默认滚动行为
+  } */
+  if (!isPullActive.value) return
+  
+  const currentY = e.touches[0].clientY
+  const deltaY = (currentY - pullStartY.value) * DAMPING_FACTOR
+  const direction = deltaY > 0 ? PULL_DIRECTION.DOWN : PULL_DIRECTION.UP
+  
+  // 动态计算允许的操作
+  let allowAction = false
+  
+  if (direction === PULL_DIRECTION.DOWN && enablePullDown.value) {
+    pullOffset.value = Math.min(deltaY, MIN_PULL_DISTANCE * 1.5)
+    isRefreshing.value = pullOffset.value > MIN_PULL_DISTANCE
+    allowAction = true
+  }
+  console.log(isRefreshing.value, pullOffset.value);
+  
+  if (direction === PULL_DIRECTION.UP && enablePullUp.value) {
+    pullOffset.value = Math.max(deltaY, -MIN_PULL_DISTANCE * 1.5)
+    isLoadingMore.value = Math.abs(pullOffset.value) > MIN_PULL_DISTANCE
+    allowAction = true
+  }
+  // console.log(deltaY, pullOffset.value, allowAction, enablePullDown.value, enablePullUp.value)
+  // 只有需要拉动反馈时才阻止默认滚动
+  if (allowAction && Math.abs(deltaY) > 5) {
+    e.preventDefault()
   }
 }
 const handleTouchEnd = () => {
-  if (!isPullActive.value) return
+  /* if (!isPullActive.value) return
   isPullActive.value = false
   // console.log(pullOffset.value)
   if (pullOffset.value > MIN_PULL_DISTANCE) {
@@ -178,9 +245,22 @@ const handleTouchEnd = () => {
   }
   else {
     resetPull()
+  } */
+  if (!isPullActive.value) return
+  isPullActive.value = false
+  // 通过最终偏移量触发操作
+  if (pullOffset.value > MIN_PULL_DISTANCE) {
+    console.log('refresh')
+    triggerRefresh()
+  } else if (pullOffset.value < -MIN_PULL_DISTANCE) {
+    console.log('load-more')
+    handleReachBottom()
   }
+  
+  // 重置状态
+  resetPull()
 }
-// 触发刷新动作
+/* // 触发刷新动作
 const triggerRefresh = async () => {
   // isRefreshing.value = true
   pullOffset.value = MIN_PULL_DISTANCE // 保持刷新状态下的偏移量
@@ -190,29 +270,68 @@ const triggerRefresh = async () => {
   } finally {
     resetPull()
   }
-}
+} */
+// 增强的刷新方法
+const triggerRefresh = useThrottleFn(async () => {
+  console.log(isRefreshing.value)
+  if (!isRefreshing.value) return
+  
+  isRefreshing.value = true
+  try {
+    await emit('refresh')
+  } finally {
+    setTimeout(resetPull, 300)  // 保持提示显示时间
+  }
+}, 1000)
+
 // 重置下拉状态
 const resetPull = () => {
   pullOffset.value = 0
+  enablePullDown.value = false
+  enablePullUp.value = false
   isRefreshing.value = false
   isLoadingMore.value = false
 }
 // 上拉加载处理（滚动到底部）
 const handleReachBottom = useThrottleFn(async () => {
-  if (!hasMore.value) return
-  // isLoadingMore.value = true
+  // console.log(isLoadingMore.value)
+  console.log(props.hasMore, isLoadingMore.value)
+  // if (!props.hasMore || isLoadingMore.value) return
+  
+  isLoadingMore.value = true
   try {
-    console.log('load-more')
     await emit('load-more')
   } finally {
-    resetPull()
+    setTimeout(() => (isLoadingMore.value = false), 300)
   }
 }, 1000)
+
+// 视频播放处理
+const showVideoModal = ref(false)
+const videoPlayer = ref(null)
+const selectedVideoUrl = ref('')
+const cardClickHandler = (item) => {
+  console.log('click', item)
+  if (item.videoUrl) {
+    selectedVideoUrl.value = item.videoUrl
+    showVideoModal.value = true
+  }
+}
+const closeVideo = () => {
+  showVideoModal.value = false
+  const video = videoPlayer.value
+  if (video) {
+    video.pause()
+    video.currentTime = 0
+  }
+}
 </script>
 
 <style lang="scss" scoped>
 .waterfall-container {
   width: 100%;
+  overflow: scroll;
+  height: 100vh;
   // padding: 0 12px;
   max-width: 1440px;
   margin: 0 auto;
@@ -249,18 +368,25 @@ const handleReachBottom = useThrottleFn(async () => {
 .content-overlay {
   padding: 12px 16px;
 
+  .title {
+      font-size: 14px;
+      margin: 0;
+      color: #000;
+      text-align: left;
+    }
+
   .top-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
 
     .game-tag {
-      background: rgba(0, 0, 0, 0.75);
-      color: #fff;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 12px;
+      background: rgba(198, 198, 198, 0.75);
+      color:rgba(59, 58, 58, 0.75);
+      padding: 4px;
+      border-radius: 5px;
+      font-size: 10px;
       line-height: 1.4;
     }
   }
@@ -269,11 +395,11 @@ const handleReachBottom = useThrottleFn(async () => {
 .author-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
 
   .author-avatar {
-    width: 40px;
-    height: 40px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     flex-shrink: 0;
   }
@@ -282,15 +408,11 @@ const handleReachBottom = useThrottleFn(async () => {
     flex: 1;
     min-width: 0;
 
-    .title {
-      font-size: 15px;
-      margin: 0;
-    }
-
     .author {
       font-size: 13px;
       color: #666;
       margin: 2px 0 0;
+      text-align: left;
     }
   }
 }
@@ -320,7 +442,7 @@ const handleReachBottom = useThrottleFn(async () => {
     transform: scale(0.8);
     opacity: 0;
     &.active {
-      transform: none;
+      // transform: none;
       opacity: 1;
     }
   }
@@ -343,4 +465,65 @@ const handleReachBottom = useThrottleFn(async () => {
   0%, 80%, 100% { opacity: 0; }
   40% { opacity: 1; }
 }
+/* 视频提示样式 */
+.video-play-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 48px;
+    height: 48px;
+    background: rgba(0,0,0,0.6);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s;
+
+    .play-icon {
+      fill: white;
+      width: 24px;
+      height: 24px;
+      margin-left: 3px;
+    }
+  }
+
+  .video-play-hint:hover {
+    opacity: 0.9;
+  }
+
+/* 视频模态框样式 */
+.video-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .video-container {
+    width: 80vw;
+    max-width: 900px;
+    video {
+      width: 100%;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+  }
+}
+
+.video-fade-enter-active,
+.video-fade-leave-active {
+  transition: opacity 0.3s;
+}
+
+.video-fade-enter-from,
+.video-fade-leave-to {
+  opacity: 0;
+}
+
 </style>
