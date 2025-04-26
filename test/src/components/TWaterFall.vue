@@ -8,7 +8,7 @@
     :style="{ transform: `translateY(${pullOffset}px)` }"
   >
     <div class="refresh-indicator" v-show="isRefreshing || pullProgress > 0">
-      <div class="loader" :class="{ active: !!isRefreshing }">
+      <div class="loader" :class="{ active: isRefreshing }">
         {{ refreshStatusText }}
       </div>
     </div>
@@ -313,7 +313,8 @@ const selectedVideoUrl = ref('')
 const cardClickHandler = (item) => {
   console.log('click', item)
   if (item.videoUrl) {
-    selectedVideoUrl.value = item.videoUrl
+    // selectedVideoUrl.value = item.videoUrl
+    selectedVideoUrl.value = "http://vjs.zencdn.net/v/oceans.mp4"
     showVideoModal.value = true
   }
 }
@@ -331,7 +332,7 @@ const closeVideo = () => {
 .waterfall-container {
   width: 100%;
   overflow: scroll;
-  height: 100vh;
+  height: calc(100vh - 2rem);
   // padding: 0 12px;
   max-width: 1440px;
   margin: 0 auto;
@@ -426,7 +427,7 @@ const closeVideo = () => {
 }
 .refresh-indicator {
   position: absolute;
-  top: -50px;
+  z-index: 1000;
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
